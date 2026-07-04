@@ -10,21 +10,6 @@ TermLens is a paper jargon explainer for people who'd rather own their tools tha
 
 ---
 
-## Why another "explain with AI" extension?
-
-Most highlight-to-explain tools are Chrome-only, closed-source or subscription-based, and explain the selection *in isolation*. TermLens is different on the axes that matter for reading dense material:
-
-| | TermLens | Typical AI sidebars | Hosted paper tools |
-|---|---|---|---|
-| Open source | ✅ | ✗ | ✗ |
-| Runs in Firefox | ✅ | rarely | n/a (web app) |
-| Bring your own key / no subscription | ✅ | ✗ | ✗ |
-| No server, no telemetry | ✅ | ✗ | ✗ |
-| Explains **in the context of the surrounding paragraph** | ✅ | sometimes | ✅ |
-| Works on any page you're reading | ✅ | ✅ | ✗ (upload only) |
-
----
-
 ## Install on Zen Browser / Firefox (primary)
 
 Firefox-based browsers load an unpacked extension as a temporary add-on:
