@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "TermLens",
+  "version": "0.1.0",
+  "description": "Highlight a term on any page and get a plain-language explanation in the context of what you're reading. Bring your own API key.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TermLens (paste mode)"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["src/content.js"],
+      "css": ["src/content.css"]
+    }
+  ],
+  "background": {
+    "scripts": ["src/background.js"],
+    "service_worker": "src/background.js"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "termlens@termlens.app",
+      "strict_min_version": "121.0"
+    }
+  }
+}

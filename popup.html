@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>TermLens</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --fg: #1c1c1c;
+      --muted: #6b6b6b;
+      --border: #d0d0d0;
+      --accent: #2f6fed;
+      --err: #c62828;
+      --bg-out: rgba(0, 0, 0, 0.04);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #e8e8e8;
+        --muted: #9a9a9a;
+        --border: #4a4a4a;
+        --accent: #7aa2ff;
+        --err: #ff8a80;
+        --bg-out: rgba(255, 255, 255, 0.06);
+      }
+    }
+    body {
+      width: 360px;
+      margin: 0;
+      padding: 14px;
+      font: 13px/1.45 system-ui, -apple-system, sans-serif;
+      color: var(--fg);
+    }
+    h1 {
+      font-size: 14px;
+      margin: 0 0 4px;
+    }
+    .hint {
+      color: var(--muted);
+      margin: 0 0 10px;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin: 8px 0 3px;
+    }
+    .opt {
+      font-weight: 400;
+      color: var(--muted);
+    }
+    input[type="text"],
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--fg);
+      font: inherit;
+    }
+    textarea {
+      resize: vertical;
+    }
+    button {
+      margin-top: 10px;
+      padding: 6px 14px;
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      background: var(--accent);
+      color: #fff;
+      font: inherit;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+    .out {
+      margin-top: 12px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: var(--bg-out);
+      white-space: pre-wrap;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+    .out.err {
+      color: var(--err);
+    }
+    .keepopen {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Explain a term</h1>
+  <p class="hint">For PDFs and anywhere the highlight button can't reach: copy the text there, paste it here.</p>
+
+  <label for="term">Term or phrase</label>
+  <input type="text" id="term" placeholder="e.g. ablation study" autocomplete="off" spellcheck="false">
+
+  <label for="context">Surrounding text <span class="opt">(optional — improves the answer)</span></label>
+  <textarea id="context" rows="5" placeholder="Paste the paragraph the term appears in"></textarea>
+
+  <button id="explain">Explain</button>
+  <div id="out" class="out" hidden></div>
+  <p class="keepopen" id="keepopen" hidden>Keep this popup open while the answer streams — clicking away cancels it.</p>
+
+  <script src="src/popup.js"></script>
+</body>
+</html>

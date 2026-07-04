@@ -1,0 +1,18 @@
+/* TermLens — content script host rules only.
+   All actual UI lives inside a closed shadow root, styled from within
+   (see the injected <style> in content.js). These rules only govern the
+   invisible host container we append to the page so it can't disrupt or
+   be disrupted by page layout. */
+
+.pje-host {
+  all: initial;          /* neutral baseline so page styles don't leak in */
+  position: absolute;    /* declared after `all` so it wins */
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  z-index: 2147483647;   /* keep our UI above page content */
+}

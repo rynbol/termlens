@@ -1,0 +1,197 @@
+<!-- TermLens — settings page -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TermLens — Settings</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #6b7280;
+    --border: #d1d5db;
+    --field-bg: #ffffff;
+    --accent: #2563eb;
+    --accent-fg: #ffffff;
+    --ok: #16a34a;
+    --err: #dc2626;
+    --preset-bg: #f3f4f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1c1f;
+      --fg: #e9e9ea;
+      --muted: #9ca3af;
+      --border: #3a3b40;
+      --field-bg: #26272b;
+      --accent: #3b82f6;
+      --accent-fg: #ffffff;
+      --ok: #22c55e;
+      --err: #f87171;
+      --preset-bg: #2c2d31;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1rem;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap {
+    max-width: 640px;
+    margin: 0 auto;
+  }
+  h1 {
+    margin: 0 0 0.25rem;
+    font-size: 1.4rem;
+  }
+  .sub {
+    margin: 0 0 1.75rem;
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .field { margin-bottom: 1.25rem; }
+  .field.hidden { display: none; }
+  label {
+    display: block;
+    margin-bottom: 0.35rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+  .hint {
+    margin-top: 0.35rem;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  input[type="text"],
+  input[type="password"],
+  select,
+  textarea {
+    width: 100%;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--field-bg);
+    color: var(--fg);
+    font: inherit;
+  }
+  textarea {
+    min-height: 130px;
+    resize: vertical;
+    line-height: 1.45;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: var(--accent);
+  }
+  .key-row { display: flex; gap: 0.5rem; }
+  .key-row input { flex: 1; }
+  .check-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  .check-label input { width: auto; margin: 0; }
+  button {
+    font: inherit;
+    cursor: pointer;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--preset-bg);
+    color: var(--fg);
+    padding: 0.5rem 0.8rem;
+  }
+  button:hover { border-color: var(--accent); }
+  .toggle-btn { white-space: nowrap; }
+  .presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+  }
+  .presets button { font-size: 0.83rem; padding: 0.35rem 0.7rem; }
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    margin-top: 1.5rem;
+  }
+  .save-btn {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-color: var(--accent);
+    font-weight: 600;
+    padding: 0.6rem 1.2rem;
+  }
+  .save-btn:hover { filter: brightness(1.05); }
+  #status {
+    font-size: 0.88rem;
+    font-weight: 600;
+    min-height: 1.2em;
+  }
+  #status.ok { color: var(--ok); }
+  #status.err { color: var(--err); }
+</style>
+
+<div class="wrap">
+  <h1>TermLens</h1>
+  <p class="sub">Configure the LLM provider used to explain highlighted terms.</p>
+
+  <div class="field">
+    <label for="provider">Provider</label>
+    <select id="provider">
+      <option value="anthropic">Anthropic</option>
+      <option value="groq">Groq</option>
+      <option value="openai-compatible">OpenAI-compatible</option>
+    </select>
+  </div>
+
+  <div class="field">
+    <label for="apiKey">API key</label>
+    <div class="key-row">
+      <input type="password" id="apiKey" autocomplete="off" spellcheck="false" placeholder="Paste your API key">
+      <button type="button" id="toggleKey" class="toggle-btn" aria-pressed="false">Show</button>
+    </div>
+    <div class="hint">Stored unencrypted on this device only (<code>chrome.storage.local</code>, not synced) and sent only to your chosen provider.</div>
+  </div>
+
+  <div class="field">
+    <label for="model">Model</label>
+    <input type="text" id="model" autocomplete="off" spellcheck="false" placeholder="claude-haiku-4-5">
+    <div class="hint" id="modelHint"></div>
+  </div>
+
+  <div class="field hidden" id="baseUrlField">
+    <label for="baseUrl">Base URL</label>
+    <input type="text" id="baseUrl" autocomplete="off" spellcheck="false"
+           placeholder="https://api.groq.com/openai/v1  or  http://localhost:11434/v1">
+    <div class="hint">The OpenAI-compatible endpoint root (without <code>/chat/completions</code>).</div>
+  </div>
+
+  <div class="field">
+    <label for="systemPrompt">System prompt</label>
+    <div class="presets">
+      <button type="button" data-preset="eli5">ELI5</button>
+      <button type="button" data-preset="technical">Technical but simple</button>
+      <button type="button" data-preset="oneliner">One-liner</button>
+    </div>
+    <textarea id="systemPrompt" spellcheck="false"></textarea>
+  </div>
+
+  <div class="field">
+    <label class="check-label"><input type="checkbox" id="simpleMode"> Simpler explanations by default</label>
+    <div class="hint">Nudges every answer toward plain, jargon-free wording. Uncheck to let your system prompt speak for itself.</div>
+  </div>
+
+  <div class="actions">
+    <button type="button" id="save" class="save-btn">Save</button>
+    <span id="status" role="status" aria-live="polite"></span>
+  </div>
+</div>
+
+<script src="src/options.js"></script>
