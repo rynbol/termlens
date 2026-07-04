@@ -4,11 +4,12 @@
  *  - On mouseup with a non-empty text selection (1-300 chars trimmed), show a
  *    small floating "Explain" button near the end of the selection. Ctrl+E
  *    explains the current selection without the button.
- *  - The button opens a mini-chat panel near the selection: the first message
- *    streams an LLM explanation of the selected term in its surrounding
- *    context; follow-ups continue the same conversation. Quick actions:
- *    Simplify (^S), More technical (^T), focus follow-up input (^F).
- *  - Assistant replies render a safe markdown subset (bold / italic / code)
+ *  - The popup opens as a SINGLE answer (not a chat). Simplify (^S) and More
+ *    technical (^T) REPLACE that answer in place (each cached separately).
+ *    Typing a follow-up (^F) is the only thing that promotes the popup into a
+ *    chat: the current answer becomes the first message and the exchange
+ *    continues from there.
+ *  - Assistant text renders a safe markdown subset (bold / italic / code)
  *    built from DOM nodes — never innerHTML.
  *  - All UI is rendered inside a CLOSED shadow root so page CSS can't
  *    interfere.
@@ -37,12 +38,11 @@
   var FOLLOWUP_MAX = 1000;
   var PANEL_W = 360;
 
-  var SIMPLIFY_PROMPT =
-    "Explain the same thing again, but simpler: shorter sentences, everyday " +
-    "words, no jargon at all.";
-  var TECHNICAL_PROMPT =
-    "Explain it again with more technical depth and precision, for someone " +
-    "comfortable with the field.";
+  // In chat mode, the action buttons send these as ordinary follow-up turns.
+  var SIMPLIFY_FOLLOWUP =
+    "Explain that again, but simpler: shorter sentences, everyday words, no jargon.";
+  var TECHNICAL_FOLLOWUP =
+    "Explain that again with more technical depth and precision.";
 
   // Block-level ancestors we consider a good "context" container.
   var BLOCK_SELECTOR =
@@ -121,7 +121,7 @@
     "  border-radius: 4px;",
     "}",
     ".pje-close:hover { background: rgba(0,0,0,0.06); color: #111827; }",
-    ".pje-msgs {",
+    ".pje-body {",
     "  flex: 1 1 auto;",
     "  min-height: 40px;",
     "  padding: 10px 12px;",
@@ -130,6 +130,13 @@
     "  flex-direction: column;",
     "  gap: 8px;",
     "}",
+    "/* Single-answer view: plain text, no bubble. */",
+    ".pje-single {",
+    "  white-space: pre-wrap;",
+    "  overflow-wrap: break-word;",
+    "  word-wrap: break-word;",
+    "}",
+    "/* Chat view: bubbles. */",
     ".pje-msg {",
     "  white-space: pre-wrap;",
     "  overflow-wrap: break-word;",
@@ -140,7 +147,7 @@
     "}",
     ".pje-assistant { background: rgba(79,70,229,0.06); align-self: flex-start; }",
     ".pje-user { background: rgba(0,0,0,0.05); align-self: flex-end; color: #374151; }",
-    ".pje-msg code {",
+    ".pje-single code, .pje-msg code {",
     "  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;",
     "  background: rgba(0,0,0,0.07);",
     "  border-radius: 4px;",
@@ -218,7 +225,7 @@
     "  .pje-close:hover { background: rgba(255,255,255,0.08); color: #f9fafb; }",
     "  .pje-assistant { background: rgba(165,180,252,0.10); }",
     "  .pje-user { background: rgba(255,255,255,0.08); color: #d1d5db; }",
-    "  .pje-msg code { background: rgba(255,255,255,0.12); }",
+    "  .pje-single code, .pje-msg code { background: rgba(255,255,255,0.12); }",
     "  .pje-thinking { color: #9ca3af; }",
     "  .pje-error { color: #fca5a5; background: #3f1d1d; border-color: #7f1d1d; }",
     "  .pje-action { color: #a5b4fc; background: rgba(165,180,252,0.10); border-color: rgba(165,180,252,0.35); }",
@@ -234,7 +241,7 @@
   var btnEl = null;       // floating "Explain" button
   var panelEl = null;     // popup panel
   var titleEl = null;     // header title (shows the term)
-  var msgsEl = null;      // scrollable message list
+  var bodyEl = null;      // scrollable body
   var thinkingEl = null;  // "Thinking..." indicator
   var simplifyBtn = null;
   var technicalBtn = null;
@@ -245,8 +252,9 @@
   var pending = null;     // {term, context, pageTitle, rect}
   var port = null;        // active runtime port (one conversation), or null
   var busy = false;       // a reply is currently streaming
-  var assistantEl = null; // assistant message element for the streaming turn
-  var assistantText = ""; // accumulated text for the streaming turn
+  var chatMode = false;   // false = single answer; true = conversation
+  var streamEl = null;    // element currently being streamed into
+  var streamText = "";    // accumulated text for the streaming turn
 
   // ---- Markdown-lite ----------------------------------------------------
 
@@ -304,13 +312,14 @@
     btnEl.title = "Explain selection (^E)";
     btnEl.style.display = "none";
     btnEl.addEventListener("mousedown", function (e) {
+      if (!e.isTrusted) return;
       e.preventDefault();
       e.stopPropagation();
       openPopup();
     });
     shadow.appendChild(btnEl);
 
-    // Popup panel: header / messages / footer(actions + input).
+    // Popup panel: header / body / footer(actions + input).
     panelEl = document.createElement("div");
     panelEl.className = "pje-panel";
     panelEl.style.display = "none";
@@ -336,8 +345,8 @@
     header.appendChild(titleEl);
     header.appendChild(closeBtn);
 
-    msgsEl = document.createElement("div");
-    msgsEl.className = "pje-msgs";
+    bodyEl = document.createElement("div");
+    bodyEl.className = "pje-body";
 
     thinkingEl = document.createElement("div");
     thinkingEl.className = "pje-thinking";
@@ -356,7 +365,7 @@
     simplifyBtn.textContent = "Simplify (^S)";
     simplifyBtn.addEventListener("click", function (e) {
       e.preventDefault();
-      sendFollowup(SIMPLIFY_PROMPT, "Simplify");
+      doSimplify();
     });
 
     technicalBtn = document.createElement("button");
@@ -365,7 +374,7 @@
     technicalBtn.textContent = "More technical (^T)";
     technicalBtn.addEventListener("click", function (e) {
       e.preventDefault();
-      sendFollowup(TECHNICAL_PROMPT, "More technical");
+      doTechnical();
     });
 
     actions.appendChild(simplifyBtn);
@@ -384,7 +393,6 @@
         e.stopPropagation();
         submitInput();
       }
-      // Keep normal typing (including Escape handled globally) working.
     });
 
     sendBtn = document.createElement("button");
@@ -403,7 +411,7 @@
     footer.appendChild(inputRow);
 
     panelEl.appendChild(header);
-    panelEl.appendChild(msgsEl);
+    panelEl.appendChild(bodyEl);
     panelEl.appendChild(footer);
     shadow.appendChild(panelEl);
 
@@ -483,21 +491,19 @@
     return text;
   }
 
-  // ---- Chat helpers ------------------------------------------------------
+  // ---- View helpers -----------------------------------------------------
 
   function scrollToBottom() {
-    if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight;
+    if (bodyEl) bodyEl.scrollTop = bodyEl.scrollHeight;
   }
 
   function setThinking(on) {
     if (!thinkingEl) return;
     thinkingEl.style.display = on ? "block" : "none";
-    if (on && thinkingEl.parentNode !== msgsEl) {
-      msgsEl.appendChild(thinkingEl);
-    } else if (on) {
-      msgsEl.appendChild(thinkingEl); // keep it at the bottom
+    if (on) {
+      bodyEl.appendChild(thinkingEl); // keep it at the bottom
+      scrollToBottom();
     }
-    if (on) scrollToBottom();
   }
 
   function setBusy(on) {
@@ -507,24 +513,25 @@
     if (sendBtn) sendBtn.disabled = on;
   }
 
-  function appendUserMsg(text) {
+  function appendUserBubble(text) {
     var el = document.createElement("div");
     el.className = "pje-msg pje-user";
     el.textContent = text;
-    msgsEl.appendChild(el);
+    bodyEl.appendChild(el);
     scrollToBottom();
   }
 
-  function beginAssistantMsg() {
-    assistantEl = document.createElement("div");
-    assistantEl.className = "pje-msg pje-assistant";
-    assistantText = "";
-    msgsEl.appendChild(assistantEl);
+  function clearError() {
+    if (!bodyEl) return;
+    var existing = bodyEl.querySelectorAll(".pje-error");
+    for (var i = 0; i < existing.length; i++) existing[i].remove();
   }
 
   function showError(message) {
     setThinking(false);
     setBusy(false);
+    streamEl = null;
+    streamText = "";
 
     var msg = String(message || "Something went wrong.");
     var text = msg;
@@ -535,7 +542,7 @@
     var el = document.createElement("div");
     el.className = "pje-error";
     el.textContent = text;
-    msgsEl.appendChild(el);
+    bodyEl.appendChild(el);
     scrollToBottom();
   }
 
@@ -565,23 +572,20 @@
       if (!msg || thisPort !== port) return;
 
       if (msg.type === "chunk") {
-        if (!assistantEl) beginAssistantMsg();
         setThinking(false);
-        assistantText += (msg.text || "");
-        renderMarkdownInto(assistantEl, assistantText);
+        if (!streamEl) return; // stray chunk with no active target
+        streamText += (msg.text || "");
+        renderMarkdownInto(streamEl, streamText);
         scrollToBottom();
       } else if (msg.type === "done") {
         setThinking(false);
-        if (!assistantText) {
-          if (!assistantEl) beginAssistantMsg();
-          assistantEl.textContent = "(No explanation was returned.)";
+        if (streamEl && !streamText) {
+          streamEl.textContent = "(No explanation was returned.)";
         }
-        assistantEl = null;
-        assistantText = "";
+        streamEl = null;
+        streamText = "";
         setBusy(false);
       } else if (msg.type === "error") {
-        assistantEl = null;
-        assistantText = "";
         showError(msg.message);
       }
     });
@@ -611,27 +615,78 @@
     }
   }
 
-  function startConversation(term, context, pageTitle) {
+  // Single-answer explanation (default / simple / technical). Replaces the
+  // whole body with one plain answer element and streams into it.
+  function runExplain(mode) {
     if (!ensurePort()) return;
+    chatMode = false;
+    clearError();
+    bodyEl.textContent = "";
+    bodyEl.appendChild(thinkingEl);
+
+    streamEl = document.createElement("div");
+    streamEl.className = "pje-single";
+    streamText = "";
+    bodyEl.appendChild(streamEl);
+
     setBusy(true);
     setThinking(true);
-    if (!postToPort({ term: term, context: context, pageTitle: pageTitle })) {
+    var payload = {
+      term: pending.term,
+      context: pending.context,
+      pageTitle: pending.pageTitle
+    };
+    if (mode === "simple" || mode === "technical") payload.mode = mode;
+    if (!postToPort(payload)) {
       setBusy(false);
       setThinking(false);
     }
   }
 
+  function doSimplify() {
+    if (busy || !pending) return;
+    if (chatMode) {
+      sendFollowup(SIMPLIFY_FOLLOWUP, "Simplify");
+    } else {
+      runExplain("simple");
+    }
+  }
+
+  function doTechnical() {
+    if (busy || !pending) return;
+    if (chatMode) {
+      sendFollowup(TECHNICAL_FOLLOWUP, "More technical");
+    } else {
+      runExplain("technical");
+    }
+  }
+
+  // Promote the current single answer into a chat: relabel it as an assistant
+  // bubble so the conversation reads naturally.
+  function enterChatMode() {
+    if (chatMode) return;
+    chatMode = true;
+    var current = bodyEl.querySelector(".pje-single");
+    if (current) current.className = "pje-msg pje-assistant";
+  }
+
   function sendFollowup(text, displayAs) {
-    if (!popupOpen || busy) return;
+    if (busy || !pending) return;
     var followup = String(text || "").trim().slice(0, FOLLOWUP_MAX);
     if (!followup) return;
     if (!port) {
-      // Conversation port died (e.g. after an error) — reconnecting would
-      // lose history, so ask for a fresh explain instead.
       showError("This conversation ended. Close the popup and explain again.");
       return;
     }
-    appendUserMsg(displayAs || followup);
+    enterChatMode();
+    clearError();
+    appendUserBubble(displayAs || followup);
+
+    streamEl = document.createElement("div");
+    streamEl.className = "pje-msg pje-assistant";
+    streamText = "";
+    bodyEl.appendChild(streamEl);
+
     setBusy(true);
     setThinking(true);
     if (!postToPort({ followup: followup })) {
@@ -658,10 +713,11 @@
     // Fresh conversation per popup.
     cleanupPort();
     setBusy(false);
-    assistantEl = null;
-    assistantText = "";
-    msgsEl.textContent = "";
-    msgsEl.appendChild(thinkingEl);
+    chatMode = false;
+    streamEl = null;
+    streamText = "";
+    bodyEl.textContent = "";
+    bodyEl.appendChild(thinkingEl);
     if (inputEl) inputEl.value = "";
 
     var term = pending.term;
@@ -683,7 +739,7 @@
     document.addEventListener("keydown", onPanelKeyDown, true);
     document.addEventListener("mousedown", onOutsideMouseDown, true);
 
-    startConversation(pending.term, pending.context, pending.pageTitle);
+    runExplain("default");
   }
 
   function closePopup() {
@@ -694,8 +750,9 @@
     document.removeEventListener("mousedown", onOutsideMouseDown, true);
     cleanupPort();
     setBusy(false);
-    assistantEl = null;
-    assistantText = "";
+    chatMode = false;
+    streamEl = null;
+    streamText = "";
   }
 
   // ---- Event handlers ---------------------------------------------------
@@ -770,7 +827,7 @@
   // Panel-scoped shortcuts, active only while the popup is open:
   // Escape close, ^S simplify, ^T more technical, ^F focus follow-up input.
   function onPanelKeyDown(e) {
-    if (!e.isTrusted) return; // ignore synthetic ^S/^T follow-up spam
+    if (!e.isTrusted) return; // ignore synthetic key events
     if (e.key === "Escape" || e.keyCode === 27) {
       closePopup();
       return;
@@ -781,11 +838,11 @@
     if (k === "s") {
       e.preventDefault();
       e.stopPropagation();
-      sendFollowup(SIMPLIFY_PROMPT, "Simplify");
+      doSimplify();
     } else if (k === "t") {
       e.preventDefault();
       e.stopPropagation();
-      sendFollowup(TECHNICAL_PROMPT, "More technical");
+      doTechnical();
     } else if (k === "f") {
       e.preventDefault();
       e.stopPropagation();
