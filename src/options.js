@@ -10,7 +10,7 @@ var DEFAULTS = {
   apiKey: "",
   model: "claude-haiku-4-5",
   baseUrl: "",
-  simpleMode: true,
+  simpleMode: false,
   systemPrompt:
     "You are a helpful assistant embedded in a research-paper reader. The user highlights a term or phrase they don't understand. Explain what it means IN THE CONTEXT of the surrounding text, in plain language, in 2-4 short sentences. If the term has a general meaning that differs from its use here, note the in-context meaning first."
 };

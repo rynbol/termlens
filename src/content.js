@@ -52,7 +52,7 @@
   var SHADOW_CSS = [
     ":host { all: initial; }",
     ".pje-btn {",
-    "  position: absolute;",
+    "  position: fixed;",
     "  z-index: 2147483647;",
     "  font: 500 12px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;",
     "  color: #fff;",
@@ -69,7 +69,7 @@
     ".pje-btn:hover { background: #4338ca; }",
     ".pje-btn:active { transform: translateY(1px); }",
     ".pje-panel {",
-    "  position: absolute;",
+    "  position: fixed;",
     "  z-index: 2147483647;",
     "  box-sizing: border-box;",
     "  width: 360px;",
@@ -308,8 +308,8 @@
     btnEl = document.createElement("button");
     btnEl.className = "pje-btn";
     btnEl.type = "button";
-    btnEl.textContent = "Explain";
-    btnEl.title = "Explain selection (^E)";
+    btnEl.textContent = "Explain (^E)";
+    btnEl.title = "Explain selection (Ctrl+E)";
     btnEl.style.display = "none";
     btnEl.addEventListener("mousedown", function (e) {
       if (!e.isTrusted) return;
@@ -416,30 +416,78 @@
     shadow.appendChild(panelEl);
 
     document.documentElement.appendChild(host);
+
+    // Keep the button / popup anchored to the selected text as the page (or an
+    // inner scroll container) scrolls or the viewport resizes. Capture phase
+    // catches scrolls from nested scrollers too, which fixes the "popup stays
+    // put while the text scrolls away" bug on sites with their own scrollers.
+    document.addEventListener("scroll", scheduleReposition, true);
+    window.addEventListener("resize", scheduleReposition, true);
   }
 
   // ---- Positioning ------------------------------------------------------
 
+  // Positions are viewport coordinates (the button/panel are position:fixed),
+  // so they track the selection whether the window or an inner container
+  // scrolls. rect is a getBoundingClientRect (already viewport-relative).
   function positionButton(rect) {
-    var top = rect.bottom + window.scrollY + 6;
-    var left = rect.right + window.scrollX + 6;
-    var viewportRight = window.scrollX + document.documentElement.clientWidth;
-    var maxLeft = viewportRight - 80;
-    if (left > maxLeft) left = Math.max(window.scrollX + 4, maxLeft);
+    var top = rect.bottom + 6;
+    var left = rect.right + 6;
+    var maxLeft = window.innerWidth - 80;
+    if (left > maxLeft) left = Math.max(4, maxLeft);
+    if (top > window.innerHeight - 28) top = Math.max(4, rect.top - 28);
     btnEl.style.top = top + "px";
     btnEl.style.left = left + "px";
   }
 
   function positionPanel(rect) {
-    var top = rect.bottom + window.scrollY + 8;
-    var left = rect.left + window.scrollX;
-    var viewportRight = window.scrollX + document.documentElement.clientWidth;
-    var maxLeft = viewportRight - PANEL_W - 12;
-    var minLeft = window.scrollX + 8;
+    var left = rect.left;
+    var maxLeft = window.innerWidth - PANEL_W - 12;
+    var minLeft = 8;
     if (left > maxLeft) left = maxLeft;
     if (left < minLeft) left = minLeft;
+    // Flip above the selection if there isn't room below.
+    var h = panelEl.offsetHeight || 240;
+    var top = rect.bottom + 8;
+    if (top + h > window.innerHeight - 8) {
+      var above = rect.top - h - 8;
+      top = above >= 8 ? above : Math.max(8, window.innerHeight - h - 8);
+    }
+    if (top < 8) top = 8;
     panelEl.style.top = top + "px";
     panelEl.style.left = left + "px";
+  }
+
+  // ---- Live re-anchoring ------------------------------------------------
+
+  var rafPending = false;
+  function scheduleReposition() {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(function () {
+      rafPending = false;
+      reposition();
+    });
+  }
+
+  // Live viewport rect of the original selection (survives scrolling).
+  function currentRect() {
+    if (pending && pending.range) {
+      try {
+        var r = pending.range.getBoundingClientRect();
+        if (r && (r.width || r.height)) return r;
+      } catch (e) { /* range detached */ }
+    }
+    return null;
+  }
+
+  function reposition() {
+    var rect = currentRect();
+    if (!rect) return;
+    if (btnEl && btnEl.style.display === "block") positionButton(rect);
+    if (popupOpen && panelEl && panelEl.style.display !== "none") {
+      positionPanel(rect);
+    }
   }
 
   // ---- Button show / hide ----------------------------------------------
@@ -615,29 +663,45 @@
     }
   }
 
-  // Single-answer explanation (default / simple / technical). Replaces the
-  // whole body with one plain answer element and streams into it.
-  function runExplain(mode) {
-    if (!ensurePort()) return;
+  // Reset the body to a single streaming answer element (used by both the
+  // initial explanation and the Simplify / More-technical rewrites).
+  function beginSingleAnswer() {
     chatMode = false;
     clearError();
     bodyEl.textContent = "";
     bodyEl.appendChild(thinkingEl);
-
     streamEl = document.createElement("div");
     streamEl.className = "pje-single";
     streamText = "";
     bodyEl.appendChild(streamEl);
-
     setBusy(true);
     setThinking(true);
-    var payload = {
+  }
+
+  // Initial explanation. The background decides simple vs. normal level from
+  // the "simpler by default" setting.
+  function runExplain() {
+    if (!ensurePort()) return;
+    beginSingleAnswer();
+    if (!postToPort({
       term: pending.term,
       context: pending.context,
       pageTitle: pending.pageTitle
-    };
-    if (mode === "simple" || mode === "technical") payload.mode = mode;
-    if (!postToPort(payload)) {
+    })) {
+      setBusy(false);
+      setThinking(false);
+    }
+  }
+
+  // Relative rewrite of the current answer: "simple" = even simpler, or
+  // "technical" = deeper. Replaces the answer in place; repeatable.
+  function runRefine(direction) {
+    if (!port) {
+      showError("This conversation ended. Close the popup and explain again.");
+      return;
+    }
+    beginSingleAnswer();
+    if (!postToPort({ refine: direction })) {
       setBusy(false);
       setThinking(false);
     }
@@ -648,7 +712,7 @@
     if (chatMode) {
       sendFollowup(SIMPLIFY_FOLLOWUP, "Simplify");
     } else {
-      runExplain("simple");
+      runRefine("simple");
     }
   }
 
@@ -657,7 +721,7 @@
     if (chatMode) {
       sendFollowup(TECHNICAL_FOLLOWUP, "More technical");
     } else {
-      runExplain("technical");
+      runRefine("technical");
     }
   }
 
@@ -724,22 +788,19 @@
     titleEl.textContent = term.length > 80 ? term.slice(0, 79) + "…" : term;
     titleEl.title = term;
 
-    // Prefer a fresh rect (in case the page scrolled between select and click).
-    var rect = pending.rect;
-    var sel = window.getSelection();
-    if (sel && !sel.isCollapsed && sel.rangeCount > 0) {
-      var r = sel.getRangeAt(0).getBoundingClientRect();
-      if (r && (r.width || r.height)) rect = r;
-    }
+    // Live rect of the selection (falls back to the capture-time rect).
+    var rect = currentRect() || pending.rect;
 
-    positionPanel(rect);
+    // Show first, then position, so positionPanel can measure the panel height
+    // for its flip-above logic.
     panelEl.style.display = "flex";
     popupOpen = true;
+    positionPanel(rect);
 
     document.addEventListener("keydown", onPanelKeyDown, true);
     document.addEventListener("mousedown", onOutsideMouseDown, true);
 
-    runExplain("default");
+    runExplain();
   }
 
   function closePopup() {
@@ -782,11 +843,16 @@
     var rect = range.getBoundingClientRect();
     if (!rect || (rect.width === 0 && rect.height === 0)) return false;
 
+    // Snapshot the range so we can re-anchor to this text as the page scrolls.
+    var anchorRange = null;
+    try { anchorRange = range.cloneRange(); } catch (e) { /* ignore */ }
+
     pending = {
       term: term,
       context: getContext(sel, term),
       pageTitle: (document.title || "").slice(0, 200),
-      rect: rect
+      rect: rect,
+      range: anchorRange
     };
     return true;
   }
