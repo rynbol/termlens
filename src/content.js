@@ -415,6 +415,20 @@
     panelEl.appendChild(footer);
     shadow.appendChild(panelEl);
 
+    // Typing in the popup must never trigger the page's own hotkeys (e.g.
+    // YouTube's "f" = fullscreen). The shadow root retargets events, so page
+    // listeners see our host <div> — not an <input> — as the target, and
+    // their "is the user typing?" checks fail. Contain every key event that
+    // originates inside the panel. Our own shortcuts (Esc, ^S/^T/^F) attach
+    // to document in the CAPTURE phase, which runs before this, so they
+    // keep working.
+    function containKeys(e) {
+      e.stopPropagation();
+    }
+    panelEl.addEventListener("keydown", containKeys);
+    panelEl.addEventListener("keypress", containKeys);
+    panelEl.addEventListener("keyup", containKeys);
+
     document.documentElement.appendChild(host);
 
     // Keep the button / popup anchored to the selected text as the page (or an
@@ -757,6 +771,9 @@
       setBusy(false);
       setThinking(false);
     }
+    // Keep focus in the input (clicking Send moves it) so the user can just
+    // keep typing the next message.
+    if (inputEl) inputEl.focus();
   }
 
   function submitInput() {
@@ -799,6 +816,10 @@
 
     document.addEventListener("keydown", onPanelKeyDown, true);
     document.addEventListener("mousedown", onOutsideMouseDown, true);
+
+    // Move keyboard focus into the popup right away so typing a follow-up
+    // goes to the input, not to the page underneath.
+    if (inputEl) inputEl.focus();
 
     runExplain();
   }
