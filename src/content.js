@@ -256,6 +256,14 @@
   var streamEl = null;    // element currently being streamed into
   var streamText = "";    // accumulated text for the streaming turn
 
+  // Locally-owned conversation snapshot, so a follow-up survives the background
+  // being suspended (MV3 idle timeout drops the port and wipes its state). We
+  // resend this with each turn; the background falls back to it on reconnect.
+  //   { term, context, pageTitle, answer, turns:[{role,content}...] }
+  var convo = null;
+  var streamKind = "single";  // "single" = explain/refine; "chat" = follow-up
+  var pendingUserContent = ""; // the follow-up text awaiting its reply
+
   // ---- Markdown-lite ----------------------------------------------------
 
   // Renders **bold**, *italic* and `code` as real DOM nodes (never innerHTML,
@@ -641,12 +649,25 @@
         scrollToBottom();
       } else if (msg.type === "done") {
         setThinking(false);
+        var finalText = streamText;
         if (streamEl && !streamText) {
           streamEl.textContent = "(No explanation was returned.)";
         }
         streamEl = null;
         streamText = "";
         setBusy(false);
+        // Record the result locally so the conversation can be replayed after
+        // the background is suspended.
+        if (convo && finalText) {
+          if (streamKind === "chat") {
+            convo.turns.push({ role: "user", content: pendingUserContent });
+            convo.turns.push({ role: "assistant", content: finalText });
+          } else {
+            // A fresh single answer (explain or refine) drops any chat.
+            convo.answer = finalText;
+            convo.turns = [];
+          }
+        }
       } else if (msg.type === "error") {
         showError(msg.message);
       }
@@ -681,6 +702,7 @@
   // initial explanation and the Simplify / More-technical rewrites).
   function beginSingleAnswer() {
     chatMode = false;
+    streamKind = "single";
     clearError();
     bodyEl.textContent = "";
     bodyEl.appendChild(thinkingEl);
@@ -710,12 +732,15 @@
   // Relative rewrite of the current answer: "simple" = even simpler, or
   // "technical" = deeper. Replaces the answer in place; repeatable.
   function runRefine(direction) {
-    if (!port) {
-      showError("This conversation ended. Close the popup and explain again.");
-      return;
-    }
+    // Reconnect if the background was suspended; carry the current answer so it
+    // can rebuild after a restart.
+    if (!ensurePort()) return;
     beginSingleAnswer();
-    if (!postToPort({ refine: direction })) {
+    if (!postToPort({
+      refine: direction,
+      term: convo ? convo.term : (pending ? pending.term : ""),
+      source: convo ? convo.answer : ""
+    })) {
       setBusy(false);
       setThinking(false);
     }
@@ -752,10 +777,9 @@
     if (busy || !pending) return;
     var followup = String(text || "").trim().slice(0, FOLLOWUP_MAX);
     if (!followup) return;
-    if (!port) {
-      showError("This conversation ended. Close the popup and explain again.");
-      return;
-    }
+    // Reconnect if the background was suspended; the payload carries the whole
+    // conversation so it can be rebuilt after a restart.
+    if (!ensurePort()) return;
     enterChatMode();
     clearError();
     appendUserBubble(displayAs || followup);
@@ -765,9 +789,19 @@
     streamText = "";
     bodyEl.appendChild(streamEl);
 
+    streamKind = "chat";
+    pendingUserContent = followup;
+
     setBusy(true);
     setThinking(true);
-    if (!postToPort({ followup: followup })) {
+    if (!postToPort({
+      followup: followup,
+      term: convo ? convo.term : "",
+      context: convo ? convo.context : "",
+      pageTitle: convo ? convo.pageTitle : "",
+      answer: convo ? convo.answer : "",
+      turns: convo ? convo.turns.slice() : []
+    })) {
       setBusy(false);
       setThinking(false);
     }
@@ -804,6 +838,16 @@
     var term = pending.term;
     titleEl.textContent = term.length > 80 ? term.slice(0, 79) + "…" : term;
     titleEl.title = term;
+
+    // Snapshot the conversation locally so follow-ups survive the background
+    // being suspended between turns.
+    convo = {
+      term: pending.term,
+      context: pending.context,
+      pageTitle: pending.pageTitle,
+      answer: "",
+      turns: []
+    };
 
     // Live rect of the selection (falls back to the capture-time rect).
     var rect = currentRect() || pending.rect;

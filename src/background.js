@@ -566,7 +566,11 @@ chrome.runtime.onConnect.addListener(function (port) {
     }
     if (typeof request.followup === "string") {
       // Cap runaway conversations (2 messages per turn: user + assistant).
-      if (chat && chat.length >= MAX_TURNS * 2) {
+      // After a reconnect `chat` is empty, so also count the turns the content
+      // script carried over.
+      var carried = Array.isArray(request.turns) ? request.turns.length : 0;
+      var length = chat ? chat.length : 2 + carried;
+      if (length >= MAX_TURNS * 2) {
         post({
           type: "error",
           message: "This conversation is too long - explain a new selection."
@@ -574,11 +578,11 @@ chrome.runtime.onConnect.addListener(function (port) {
         return;
       }
       busy = true;
-      runFollowup(request.followup);
+      runFollowup(request);
     } else if (request.refine === "simple" || request.refine === "technical") {
       // Relative rewrite of the current single answer (replaces it in place).
       busy = true;
-      runRefine(request.refine);
+      runRefine(request);
     } else if (typeof request.term === "string") {
       // {term, context, pageTitle} — the initial single-shot explanation.
       busy = true;
@@ -646,9 +650,18 @@ chrome.runtime.onConnect.addListener(function (port) {
     }
   }
 
-  async function runRefine(direction) {
+  async function runRefine(request) {
     try {
-      if (lastReply === null || lastTerm === null) {
+      var direction = request.refine;
+      // Prefer live state; fall back to what the content script carried over
+      // (set after the background was suspended and the port reconnected).
+      var term = lastTerm !== null
+        ? lastTerm
+        : String((request && request.term) || "").slice(0, 400);
+      var source = lastReply !== null
+        ? lastReply
+        : String((request && request.source) || "");
+      if (!source || !term) {
         post({
           type: "error",
           message: "Nothing to refine yet - explain a selection first."
@@ -656,11 +669,11 @@ chrome.runtime.onConnect.addListener(function (port) {
         return;
       }
       var settings = await loadSettings();
-      var source = lastReply;
-      var prompt = buildRefinePrompt(lastTerm, source, direction, nonce);
+      var prompt = buildRefinePrompt(term, source, direction, nonce);
 
       // Refine keeps the single-answer view; it does not extend a chat.
       chat = null;
+      lastTerm = term;
 
       // Cache the rewrite by its source text + direction, so re-refining the
       // same answer is instant while each new level is its own entry.
@@ -691,27 +704,50 @@ chrome.runtime.onConnect.addListener(function (port) {
     }
   }
 
-  async function runFollowup(text) {
+  async function runFollowup(request) {
     try {
-      var followup = String(text || "").trim().slice(0, 1000);
+      var followup = String((request && request.followup) || "").trim().slice(0, 1000);
       if (!followup) {
-        return;
-      }
-      if (lastPrompt === null || lastReply === null) {
-        post({
-          type: "error",
-          message: "Nothing to follow up on yet - explain a selection first."
-        });
         return;
       }
       var settings = await loadSettings();
       // First follow-up promotes the single answer into a conversation, seeded
       // with the explanation the user is looking at.
       if (chat === null) {
-        chat = [
-          { role: "user", content: lastPrompt },
-          { role: "assistant", content: lastReply }
-        ];
+        if (lastPrompt !== null && lastReply !== null) {
+          // Live state from this session.
+          chat = [
+            { role: "user", content: lastPrompt },
+            { role: "assistant", content: lastReply }
+          ];
+        } else {
+          // Reconnected after a suspend: rebuild the history from what the
+          // content script carried over (root answer + any prior turns).
+          var term = String((request && request.term) || "").slice(0, 400);
+          var context = String((request && request.context) || "").slice(0, 2000);
+          var pageTitle = String((request && request.pageTitle) || "").slice(0, 200);
+          var answer = String((request && request.answer) || "");
+          if (!answer) {
+            post({
+              type: "error",
+              message: "Nothing to follow up on yet - explain a selection first."
+            });
+            return;
+          }
+          chat = [
+            { role: "user", content: buildInitialPrompt(term, context, pageTitle, nonce) },
+            { role: "assistant", content: answer }
+          ];
+          if (Array.isArray(request.turns)) {
+            for (var ti = 0; ti < request.turns.length; ti++) {
+              var t = request.turns[ti];
+              if (t && (t.role === "user" || t.role === "assistant") &&
+                  typeof t.content === "string") {
+                chat.push({ role: t.role, content: t.content });
+              }
+            }
+          }
+        }
       }
       chat.push({ role: "user", content: followup });
       // Follow-ups are conversational and NOT cached.
