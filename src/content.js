@@ -307,9 +307,24 @@
     host.className = "pje-host";
     shadow = host.attachShadow({ mode: "closed" });
 
-    var style = document.createElement("style");
-    style.textContent = SHADOW_CSS;
-    shadow.appendChild(style);
+    // Constructed stylesheets are CSSOM, exempt from the page's style-src
+    // CSP — an injected <style> tag is not, and gets blocked on strict-CSP
+    // pages (and in our bundled PDF.js viewer). Fall back for old engines.
+    var sheetApplied = false;
+    try {
+      if (typeof CSSStyleSheet !== "undefined" &&
+          CSSStyleSheet.prototype.replaceSync) {
+        var sheet = new CSSStyleSheet();
+        sheet.replaceSync(SHADOW_CSS);
+        shadow.adoptedStyleSheets = [sheet];
+        sheetApplied = true;
+      }
+    } catch (e) { /* fall through to <style> */ }
+    if (!sheetApplied) {
+      var style = document.createElement("style");
+      style.textContent = SHADOW_CSS;
+      shadow.appendChild(style);
+    }
 
     // Floating button. Fires on mousedown (not click) so the request starts
     // ~100ms sooner; preventDefault keeps the page selection intact.

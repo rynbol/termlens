@@ -62,20 +62,24 @@ There's also a **Simpler explanations by default** toggle (on) and three system-
 
 1. Select a word or phrase on any HTML page.
 2. Click the floating **Explain** button — or press **Ctrl+E** to skip the button.
-3. The explanation streams into a mini-chat popup. From there:
-   - **Simplify (Ctrl+S)** — plainer, no jargon.
-   - **More technical (Ctrl+T)** — more depth and precision.
-   - **Follow-up (Ctrl+F)** — ask anything; it keeps the passage as context.
+3. The explanation streams into a popup as a single plain answer. From there:
+   - **Simplify (Ctrl+S)** — rewrites the answer you're looking at to be simpler still. Repeatable.
+   - **More technical (Ctrl+T)** — rewrites it with more depth and precision. Repeatable.
+   - **Follow-up (Ctrl+F)** — ask anything; this is what turns the popup into a chat, keeping the passage as context.
    - **Esc** closes.
 
 Identical lookups are cached locally, so repeats are instant and free.
 
-### PDFs (paste mode)
+### PDFs and papers
 
-Browsers' built-in PDF viewers don't expose selections to extensions, so the highlight button can't appear on PDFs. Two options:
+Browsers open PDFs in a privileged built-in viewer where extensions can't run, so the highlight button can never appear there. TermLens ships **its own PDF reader** instead (bundled PDF.js), where highlight-to-explain works exactly as it does on web pages. Three ways in:
 
-- Prefer the **HTML version** of a paper (e.g. arXiv's HTML link) — everything works normally.
-- For any PDF, click the **TermLens toolbar icon** to open **paste mode**: paste the term (and optionally the surrounding text), and get the same explanation.
+- **A PDF link on a page** — right-click it → **Open PDF in TermLens**.
+- **A PDF URL** (e.g. `https://arxiv.org/pdf/2310.06770`) — click the toolbar icon, paste it under **Read a PDF**, press **Open**.
+- **A PDF you're already viewing** — click the toolbar icon → **Reopen this tab's PDF in TermLens**.
+- **A downloaded PDF** — toolbar icon → **open the reader**, then use its Open-file button or drag the PDF in.
+
+Scanned/image-only PDFs have no text layer to select, so they need OCR and aren't supported. **Paste mode** (toolbar icon, top section) remains available for those and for anywhere else the button can't reach.
 
 ---
 
@@ -93,12 +97,33 @@ Browsers' built-in PDF viewers don't expose selections to extensions, so the hig
 
 - **Content script** (`src/content.js` + `src/content.css`): detects selections, shows the button, renders the mini-chat popup inside a closed shadow DOM.
 - **Background** (`src/background.js`): one self-contained classic script — messaging port, provider dispatch, streaming SSE parsing, local response cache, per-conversation history.
-- **Options / popup** (`options.html`, `popup.html`, `src/*.js`): settings and PDF paste mode.
+- **Options / popup** (`options.html`, `popup.html`, `src/*.js`): settings, paste mode, and the PDF reader entry points.
+- **PDF reader** (`pdf/`): a vendored copy of Mozilla's PDF.js served as an extension page, with the content script loaded into it.
 
 No build step, no bundler, no dependencies, no module syntax — it uses only the `chrome.*` API namespace, which both Firefox and Chrome support natively.
 
 ---
 
+## Third-party code
+
+`pdf/` is a vendored copy of **[PDF.js](https://github.com/mozilla/pdf.js) v6.1.200** (Apache License 2.0 — see [`pdf/LICENSE`](pdf/LICENSE)), used as TermLens's PDF reader.
+
+Two files carry TermLens modifications, each marked with a `TermLens modification` comment:
+
+- `pdf/web/viewer.html` — loads `src/content.js` / `src/content.css` so highlight-to-explain works inside the viewer.
+- `pdf/web/viewer.mjs` — the viewer's same-origin check also accepts `http(s)` documents, so remote PDFs (arXiv and friends) open via the extension's host permissions. Other URL schemes stay blocked, and the viewer is not web-accessible: only TermLens's own UI can open it.
+
+Source maps and PDF.js's sample document are gitignored (debug-only / unused). To re-vendor or upgrade:
+
+```sh
+curl -L -o /tmp/pdfjs.zip https://github.com/mozilla/pdf.js/releases/download/v6.1.200/pdfjs-6.1.200-dist.zip
+mkdir -p pdf && unzip -q -o /tmp/pdfjs.zip -d pdf && rm /tmp/pdfjs.zip
+```
+
+…then re-apply the two modifications above (`git diff` against a clean extract will show them).
+
+---
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Vendored PDF.js remains under Apache 2.0.

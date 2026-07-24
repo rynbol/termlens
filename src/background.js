@@ -516,6 +516,55 @@ function isLocalBaseUrl(url) {
   return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(url || "");
 }
 
+// ===========================================================================
+// Part 4 — bundled PDF reader entry points
+// ===========================================================================
+// PDFs normally open in the browser's built-in viewer, a privileged page where
+// content scripts can't run. We bundle our own PDF.js viewer (pdf/web/
+// viewer.html) as an extension page instead; the explain UI is included there
+// directly. These hooks just route PDFs into it.
+
+var PDF_VIEWER_PATH = "pdf/web/viewer.html";
+
+// ?file= is empty for a blank viewer (the user opens a local file from its
+// toolbar or drops one in).
+function viewerUrlFor(pdfUrl) {
+  return (
+    chrome.runtime.getURL(PDF_VIEWER_PATH) +
+    "?file=" + encodeURIComponent(pdfUrl || "")
+  );
+}
+
+if (chrome.contextMenus) {
+  chrome.runtime.onInstalled.addListener(function () {
+    // removeAll first: onInstalled re-fires for temporary add-ons, and
+    // creating a duplicate id would error.
+    chrome.contextMenus.removeAll(function () {
+      chrome.contextMenus.create({
+        id: "termlens-open-pdf-link",
+        title: "Open PDF in TermLens",
+        contexts: ["link"],
+        targetUrlPatterns: [
+          "*://*/*.pdf",
+          "*://*/*.pdf?*",
+          "*://*/*.pdf#*",
+          "*://arxiv.org/pdf/*",
+          "*://openreview.net/pdf*"
+        ]
+      });
+    });
+  });
+
+  chrome.contextMenus.onClicked.addListener(function (info) {
+    if (
+      info.menuItemId === "termlens-open-pdf-link" &&
+      /^https?:\/\//i.test(info.linkUrl || "")
+    ) {
+      chrome.tabs.create({ url: viewerUrlFor(info.linkUrl) });
+    }
+  });
+}
+
 chrome.runtime.onConnect.addListener(function (port) {
   if (port.name !== "explain") {
     return;

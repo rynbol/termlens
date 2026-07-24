@@ -116,6 +116,76 @@ function explain() {
   }
 }
 
+// ---- PDF reader section ----------------------------------------------------
+// PDFs open in the browser's built-in viewer, where content scripts can't
+// run. We route them into the extension's bundled PDF.js viewer instead
+// (pdf/web/viewer.html), where the explain UI is available.
+
+function viewerUrlFor(pdfUrl) {
+  return (
+    chrome.runtime.getURL("pdf/web/viewer.html") +
+    "?file=" + encodeURIComponent(pdfUrl || "")
+  );
+}
+
+function looksLikePdfUrl(url) {
+  return (
+    /^https?:\/\//i.test(url || "") &&
+    (/\.pdf($|[?#])/i.test(url) || /^https?:\/\/arxiv\.org\/pdf\//i.test(url))
+  );
+}
+
+function openPdfInViewer(pdfUrl) {
+  chrome.tabs.create({ url: viewerUrlFor(pdfUrl) });
+  window.close();
+}
+
+function openPdfFromInput() {
+  var url = $("pdfUrl").value.trim();
+  if (!url) {
+    return;
+  }
+  if (!/^https?:\/\//i.test(url)) {
+    showOut("PDF links must start with http(s)://", true);
+    return;
+  }
+  openPdfInViewer(url);
+}
+
+function initPdfSection() {
+  $("openPdf").addEventListener("click", openPdfFromInput);
+  $("pdfUrl").addEventListener("keydown", function (event) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      openPdfFromInput();
+    }
+  });
+  $("openViewer").addEventListener("click", function (event) {
+    event.preventDefault();
+    openPdfInViewer("");
+  });
+
+  // Offer to reopen the current tab when it's a PDF shown in the built-in
+  // viewer. Opening this popup grants activeTab, which exposes the URL.
+  try {
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+      if (chrome.runtime.lastError) {
+        return;
+      }
+      var url = tabs && tabs[0] && tabs[0].url;
+      if (looksLikePdfUrl(url)) {
+        var btn = $("reopenPdf");
+        btn.hidden = false;
+        btn.addEventListener("click", function () {
+          openPdfInViewer(url);
+        });
+      }
+    });
+  } catch (e) {
+    // tabs API unavailable — the manual URL field still works.
+  }
+}
+
 function init() {
   $("explain").addEventListener("click", explain);
   $("term").addEventListener("keydown", function (event) {
@@ -124,6 +194,7 @@ function init() {
       explain();
     }
   });
+  initPdfSection();
   $("term").focus();
 }
 

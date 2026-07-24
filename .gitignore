@@ -8,3 +8,9 @@
 
 # Logs / scratch
 *.log
+
+# Vendored PDF.js: keep the runtime files, skip the dead weight.
+# Source maps are debug-only (~9 MB) and the sample document is unused —
+# TermLens always passes an explicit ?file=, so PDF.js's defaultUrl never loads.
+pdf/**/*.map
+pdf/web/compressed.tracemonkey-pldi-09.pdf

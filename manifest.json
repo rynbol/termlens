@@ -3,8 +3,11 @@
   "name": "TermLens",
   "version": "0.1.0",
   "description": "Highlight a term on any page and get a plain-language explanation in the context of what you're reading. Bring your own API key.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "contextMenus", "activeTab"],
   "host_permissions": ["http://*/*", "https://*/*"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "TermLens (paste mode)"
@@ -27,7 +30,7 @@
   "browser_specific_settings": {
     "gecko": {
       "id": "termlens@termlens.app",
-      "strict_min_version": "121.0",
+      "strict_min_version": "128.0",
       "data_collection_permissions": {
         "required": ["none"]
       }

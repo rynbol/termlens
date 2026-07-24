@@ -92,6 +92,25 @@
       color: var(--muted);
       font-size: 12px;
     }
+    .rule {
+      margin: 14px 0 12px;
+      border: none;
+      border-top: 1px solid var(--border);
+    }
+    .row {
+      display: flex;
+      gap: 6px;
+      align-items: stretch;
+    }
+    .row input { flex: 1 1 auto; min-width: 0; }
+    .row-btn { margin-top: 0; white-space: nowrap; }
+    .wide {
+      width: 100%;
+      margin: 0 0 10px;
+      box-sizing: border-box;
+    }
+    .tight { margin: 8px 0 0; }
+    a { color: var(--accent); }
   </style>
 </head>
 <body>
@@ -107,6 +126,21 @@
   <button id="explain">Explain</button>
   <div id="out" class="out" hidden></div>
   <p class="keepopen" id="keepopen" hidden>Keep this popup open while the answer streams — clicking away cancels it.</p>
+
+  <hr class="rule">
+
+  <h1>Read a PDF</h1>
+  <p class="hint">Opens in TermLens's own PDF reader, where highlight-to-explain works.</p>
+
+  <button id="reopenPdf" class="wide" hidden>Reopen this tab's PDF in TermLens</button>
+
+  <label for="pdfUrl">PDF link</label>
+  <div class="row">
+    <input type="text" id="pdfUrl" placeholder="https://arxiv.org/pdf/2310.06770" autocomplete="off" spellcheck="false">
+    <button id="openPdf" class="row-btn">Open</button>
+  </div>
+
+  <p class="hint tight">Downloaded PDF? <a href="#" id="openViewer">Open the reader</a> and use its Open&nbsp;file button (or drag the PDF in).</p>
 
   <script src="src/popup.js"></script>
 </body>
